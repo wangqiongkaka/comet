@@ -20,7 +20,7 @@ If the original directory or branch is truly lost, the user decides which recove
 
 - Shape: remain in Shape and continue clarification or confirmation.
 - Build: if the Runtime shows `repairing`, Verify has returned to Build. For an ordinary change, keep the current iteration and continue implementation. For a Supervisor Change, follow `repair-child` and add an unfinished child covering the failed acceptance items; do not reopen an archived child.
-- Verify (`verify-ready`): rerun the necessary checks for the current candidate and start a new Verifier. Do not reuse a pass from the old device.
+- Verify (`verify-ready`): rerun the necessary checks for the current candidate and judge every acceptance item again. Do not reuse a pass from the old device.
 - Archive (`archive-ready`): safely return to Verify, reset the verification result to `pending`, and verify the implementation synchronized to the new device.
 - `await-user` / `blocked`: restore the original blocker, responsible actor, and allowed actions; wait until the corresponding condition is satisfied.
 - `done` under the active directory: complete only directory movement and cleanup that can be determined safely.
@@ -38,15 +38,15 @@ To resume on a new device with no chat history, obtain the same synchronized pro
 
 Stop progression on the old device before synchronizing. A Git conflict or two different contents for the same state version enters a blocked state for the user to resolve.
 
-Unsynchronized code from the old device cannot be recovered from workflow state, and a subagent task cannot continue across devices. The new device creates local tasks from the workspace, acceptance Loop, verification result, blockers, Builder handoff, and next action in YAML. If the synchronized implementation is incomplete, the new Verifier reports the gap and returns to Build.
+Unsynchronized code from the old device cannot be recovered from workflow state, and a local task cannot continue across devices. The new device creates local tasks from the workspace, acceptance Loop, verification result, blockers, Builder handoff, and next action in YAML. If the synchronized implementation is incomplete, the new verification round reports the gap and returns to Build.
 
-Reverification of Verify or archive-ready state on a new device is recovery: it does not increment the implementation iteration, failure count, or stagnation count. Only actually starting a new Verifier increments the Verifier attempt. Completed Shape and Build work are not repeated, and the Runtime does not scan the whole project to guess progress.
+Reverification of Verify or archive-ready state on a new device is recovery: it does not increment the implementation iteration, failure count, or stagnation count. Only actually starting a new verification round increments the verification attempt. Completed Shape and Build work are not repeated, and the Runtime does not scan the whole project to guess progress.
 
 ## Failed Verify and repeated lack of progress
 
 After Verify fails, read the failed and blocked acceptance items and failed checks. Make actual changes, then submit a new Builder handoff. Progress means the unresolved problem set becomes smaller. Editing explanatory text, repeating the same check, or reporting the same reason again does not resolve a problem.
 
-After repeated rounds without progress or repeated Verifier task errors, follow the blocker action returned by the Runtime. When failed iterations reach `native.max_verify_failures`, the workflow enters `await-user` so the user can continue the current target, change the confirmed requirements, or stop.
+After repeated rounds without progress or repeated verification execution errors, follow the blocker action returned by the Runtime. When failed iterations reach `native.max_verify_failures`, the workflow enters `await-user` so the user can continue the current target, change the confirmed requirements, or stop.
 
 The verification failure count resets after the user confirms a new acceptance list and starts a new goal round.
 

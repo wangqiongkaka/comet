@@ -15,7 +15,7 @@
   verification.md
 ```
 
-Agent 只编辑 brief、完整目标规格和 Supervisor Change 的 `children.yaml`。`comet-state.yaml` 与 `verification.md` 由 Runtime 管理；Runtime 第一次接受 Verifier 结果后生成报告。
+Agent 只编辑 brief、完整目标规格和 Supervisor Change 的 `children.yaml`。`comet-state.yaml` 与 `verification.md` 由 Runtime 管理；Runtime 第一次接受验收结果后生成报告。
 
 本机 Runtime 固定保存在被 Git 忽略的 `.comet/runtime/native/`。每个 active change 的本机状态和日志位于 `changes/<change-name>/state.json` 与 `logs/`；项目级锁和短期事务也放在这个 Runtime 目录中。这些机器文件始终交给 Runtime 创建、迁移和修复。
 
@@ -23,7 +23,7 @@ Agent 只编辑 brief、完整目标规格和 Supervisor Change 的 `children.ya
 
 `comet-state.yaml` 是跨设备恢复时唯一可信的工作流状态，记录当前阶段、状态、版本、验收循环次数、验收结果、Builder 交接摘要、阻塞原因、下一步、检查摘要和精简历史。本机进程、绝对路径和完整命令输出只保留在本机 Runtime 中。该文件由 Runtime 更新。
 
-`verification.md` 是 Runtime 根据同一版本的 YAML 生成的可读验收报告。报告缺失或版本落后时，Runtime 只重建报告，不会因此重新运行检查或 Verifier。工作流进度始终以 YAML 为准，不能通过修改 Markdown 报告来推进。
+`verification.md` 是 Runtime 根据同一版本的 YAML 生成的可读验收报告。报告缺失或版本落后时，Runtime 只重建报告，不会因此重新运行检查或重新验收。工作流进度始终以 YAML 为准，不能通过修改 Markdown 报告来推进。
 
 `.comet/config.yaml` 决定使用哪种工作流，以及 change 产物保存在哪个目录。使用非默认产物目录并需要跨设备恢复时，应同步该文件；其余 `.comet/*` 只保留在本机。
 

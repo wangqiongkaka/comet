@@ -11,7 +11,7 @@ Native 把需求、完整目标规格、当前进度和验收结论保存在项�
 - 磁盘中的 `.comet/config.yaml`、当前 change、`comet-state.yaml` 和正式 Markdown 是工作依据，聊天记忆只作辅助。
 - Runtime 管理工作流状态、本机任务、日志、锁和事务；所有阶段推进都通过 PATH 中公开的 `comet native` 命令完成，用户不手工执行这些命令。
 - 命令不可用时报告 Comet 安装不完整并停止。参数和输出以 `comet native <command> --help` 为准。
-- Builder 提交候选，新的只读 Verifier subagent 或独立 Agent 任务作出验收判断。
+- Builder 提交候选，Verify 由当前模型基于 Runtime 检查结果逐项作出验收判断，不启动 Verifier subagent，也不派发独立 Agent 任务。
 - Native 主流程由本 Skill 和 Runtime 完成，不依赖任何外部 Skill。
 ## 开始或恢复
 
@@ -32,7 +32,7 @@ CLI 会在创建 change 前完成分支或 worktree 绑定、复用已登记的 
 
 - Shape：必须读取并执行[澄清参考](reference/clarification.md)；
 - 实际编辑 brief/完整目标规格，或查看验收报告时读取[产物参考](reference/artifacts.md)；
-- 正常推进时，直接执行 Runtime 在 `continuation` 中给出的命令。只有返回字段含义不清、命令输入被拒绝、无法启动 Verifier、Verifier 执行报错，或 Verifier 要求用户补充信息时，才读取[命令参考](reference/commands.md)；
+- 正常推进时，直接执行 Runtime 在 `continuation` 中给出的命令。只有返回字段含义不清、命令输入被拒绝、验收执行报错，或验收需要用户补充信息时，才读取[命令参考](reference/commands.md)；
 - 只有任务因进程中断、换设备后本机状态缺失、连续多轮没有进展、并发冲突、旧版本迁移失败或状态损坏而无法继续时，才读取[恢复参考](reference/recovery.md)。
 ## Shape
 
@@ -48,17 +48,17 @@ CLI 会在创建 change 前完成分支或 worktree 绑定、复用已登记的 
 
 ## Build ↔ Verify Loop
 
-Build 和 Verify 组成一个有界验收循环（Loop）：Builder 提交候选，Runtime 执行必要检查，再由新的只读 Verifier 验收。验收未通过时回到 Build，完成修改并提交下一轮候选；全部通过时进入 Archive。
+Build 和 Verify 组成一个有界验收循环（Loop）：Builder 提交候选，Runtime 执行必要检查，当前模型据此逐项验收。验收未通过时回到 Build，完成修改并提交下一轮候选；全部通过时进入 Archive。
 
-`iteration` 表示实现候选的轮次，`attempt` 表示同一候选启动 Verifier 的次数。连续失败、没有实际进展或 Verifier 多次执行出错时，Runtime 会在预算上限处进入等待用户或阻塞状态。所有计数都由 Runtime 更新，Agent 只执行最新 `continuation`。
+`iteration` 表示实现候选的轮次，`attempt` 表示同一候选的验收尝试次数。连续失败、没有实际进展或验收多次执行出错时，Runtime 会在预算上限处进入等待用户或阻塞状态。所有计数都由 Runtime 更新，Agent 只执行最新 `continuation`。
 
 ## Build
 
-首次实现时读取当前 brief、完整目标规格和全部验收项。如果 Verify 未通过并返回 Build，先处理 Verifier 指出的未通过项、无法继续验证的问题和失败检查；再次提交前重新核对完整规格与全部验收项，避免只修报错点而遗漏其他要求。
+首次实现时读取当前 brief、完整目标规格和全部验收项。如果 Verify 未通过并返回 Build，先处理上一轮验收指出的未通过项、无法继续验证的问题和失败检查；再次提交前重新核对完整规格与全部验收项，避免只修报错点而遗漏其他要求。
 
 确认一次 Supervisor Change Shape 即授权严格派生的子 change，不要求用户重复确认相同范围。Skill 只执行 Runtime continuation 返回的动作，并在每个 child 完成后重新读取 `readyChildren`，继续下一波；Supervisor Change 最后仍由 Verify 验证完整验收项。
 
-状态包含 `children` 时，当前 change 是 Supervisor Change：不要运行 Supervisor Change Builder，只推进 `readyChildren`。每个 child 都是普通 Native change，必须在独立 worktree 中创建，以 Supervisor Change 的 `workspace.changeBranch` 为目标分支；没有依赖的 child 可以并行 Build/Verify，但 Archive 必须逐个使用 `finish=merge` 合入 Supervisor Change 分支。先提交 Supervisor Change 契约基线以保持集成工作区干净；只有 child 的 Archive 已合入 Supervisor Change 分支才算 `done`，随后才从更新后的 Supervisor Change HEAD 创建依赖它的 child。全部 child 为 `done` 后，执行 Supervisor Change continuation 进入 Verify，由新的 Verifier 在最终集成分支上检查 Supervisor Change 的完整验收项。Supervisor Change Verify 未通过时不要重开已归档 child；按 `repair-child` 提示在 v2 `acceptance_index` 中补充实际失败的 Spec 验收文字，并在 `children.yaml` 中追加覆盖这些失败验收项的唯一 repair child，重新确认 Supervisor Change Shape 后继续。
+状态包含 `children` 时，当前 change 是 Supervisor Change：不要运行 Supervisor Change Builder，只推进 `readyChildren`。每个 child 都是普通 Native change，必须在独立 worktree 中创建，以 Supervisor Change 的 `workspace.changeBranch` 为目标分支；没有依赖的 child 可以并行 Build/Verify，但 Archive 必须逐个使用 `finish=merge` 合入 Supervisor Change 分支。先提交 Supervisor Change 契约基线以保持集成工作区干净；只有 child 的 Archive 已合入 Supervisor Change 分支才算 `done`，随后才从更新后的 Supervisor Change HEAD 创建依赖它的 child。全部 child 为 `done` 后，执行 Supervisor Change continuation 进入 Verify，在最终集成分支上逐项验收 Supervisor Change 的完整验收项。Supervisor Change Verify 未通过时不要重开已归档 child；按 `repair-child` 提示在 v2 `acceptance_index` 中补充实际失败的 Spec 验收文字，并在 `children.yaml` 中追加覆盖这些失败验收项的唯一 repair child，重新确认 Supervisor Change Shape 后继续。
 
 需求变化时先判断归属：
 
@@ -70,23 +70,23 @@ Build 和 Verify 组成一个有界验收循环（Loop）：Builder 提交候选
 
 候选完成后，按 Runtime 在 `continuation` 中提供的输入模板提交一份精简的 Builder 交接摘要，包括：本轮做了什么、处理了哪些验收项、实际运行或没有运行哪些开发期检查，以及还有哪些已知限制。
 
-这份 handoff 保存在 `comet-state.yaml` 中，不会生成单独文件，也不代表已经验收通过。Runtime 会把它交给 Verifier，Builder 提交一次即可。
+这份 handoff 保存在 `comet-state.yaml` 中，不会生成单独文件，也不代表已经验收通过。Runtime 会把它放进 Verify 的 `verifierDispatch` 作为待核对线索，Builder 提交一次即可。
 
 完成标准：实现和相关检查达到可验收状态，完整验收项已重新核对，Runtime 接受 handoff 并进入 Verify。
 
 ## Verify
 
-Runtime 要求启动 Verifier（`dispatch-verifier`）时，先把当前候选需要运行的测试和检查命令填入 `inputOptions.template`，由 Runtime 统一执行。Runtime 会复用已经完成的检查；是否重试或补充检查，以最新 `continuation` 为准。
+Runtime 要求进入验收（`dispatch-verifier`）时，先把当前候选需要运行的测试和检查命令填入 `inputOptions.template`，由 Runtime 统一执行。Runtime 会复用已经完成的检查；是否重试或补充检查，以最新 `continuation` 为准。
 
-Runtime 返回 `verifierDispatch` 后，立即启动一个新的只读 Verifier subagent。平台不支持 subagent 时，启动一个与 Builder 会话分开的新 Agent 任务。
+Runtime 返回 `verifierDispatch` 后，由当前模型直接完成验收，不启动 Verifier subagent，也不派发独立 Agent 任务。
 
-Verifier 先读取验收项、brief、完整目标 Spec、实际实现和 Runtime 检查结果，最后再把 Builder handoff 当作调查线索，保持验收判断独立。
+验收取证顺序固定：先读取 `verifierDispatch` 中的验收项、brief、完整目标 Spec、实际实现和 Runtime 检查结果，最后才把 Builder handoff 当作调查线索。自己在 Build 阶段写下的 handoff 是待核对的说法而不是结论，每一项判断都必须回到实现代码和 Runtime 检查结果上重新取证。
 
-Verifier 保持只读。如果现有检查不足，就在 Runtime 返回的 `inputOptions.template` 中列出还需要运行哪些检查，由 Runtime 执行并把结果返回给 Verifier。
+验收期间保持只读：Verify 阶段的实现写入由 Runtime Guard 拒绝，需要修改实现时先回到 Build。如果现有检查不足，就在 `inputOptions.template` 中列出还需要运行哪些检查，由 Runtime 执行后返回结果；Runtime 记录的结果是权威依据，不用记忆或推断代替。
 
-Verifier 最终必须逐项标记为通过（`passed`）、未通过（`failed`）或暂时无法验证（`blocked`），一项不能漏，也不能重复。未通过或无法验证时，写出下一轮 Build 可直接处理的原因。无法启动 Verifier、Verifier 执行出错或缺少外部信息时，按命令参考和最新 `continuation` 处理。skill-coordinated Verifier 通过且 Runtime 等待用户决策时，只有用户接受当前结果才用 `--accept-result` 进入 Archive；如果用户要求修改实现或验收标准，分别使用 `--revise-implementation` 或 `--revise-requirements`。
+最终必须逐项标记为通过（`passed`）、未通过（`failed`）或暂时无法验证（`blocked`），一项不能漏，也不能重复，每项都写出可追溯到实现或检查结果的理由。未通过或无法验证时，写出下一轮 Build 可直接处理的原因。验收执行出错或缺少外部信息时，按命令参考和最新 `continuation` 处理。验收判断来自当前模型而不是独立执行，Runtime 会把结果记为 skill-coordinated：全部通过且 Runtime 等待用户决策时，先说明这一验收边界，只有用户接受当前结果才用 `--accept-result` 进入 Archive；如果用户要求修改实现或验收标准，分别使用 `--revise-implementation` 或 `--revise-requirements`。
 
-完成标准：Runtime 已接受完整的 Verifier 结果，并明确进入 Build、Archive、等待用户（`await-user`）、阻塞（`blocked`）或完成（`done`）中的一种状态。
+完成标准：Runtime 已接受完整的验收结果，并明确进入 Build、Archive、等待用户（`await-user`）、阻塞（`blocked`）或完成（`done`）中的一种状态。
 
 ## Archive
 

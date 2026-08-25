@@ -2,6 +2,12 @@
 
 All notable changes to @rpamis/comet will be documented in this file.
 
+## What's Changed [0.4.0-beta.19-yy.04] - 2026-08-25
+
+### Changed
+
+- **Native Verify runs in the current model**: Verify no longer starts a read-only Verifier subagent or a separate Agent task. After the Runtime returns `verifierDispatch`, the current model judges every acceptance item itself against Runtime-executed check results, marking each item `passed`, `failed`, or `blocked` with a traceable reason. The Runtime still owns check execution and records the outcome as skill-coordinated, implementation writes stay blocked during Verify, and a passing result still waits for explicit `--accept-result` before Archive.
+
 ## What's Changed [0.4.0-beta.19] - 2026-08-21
 
 ### Added

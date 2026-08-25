@@ -142,9 +142,9 @@ describe('Comet Native Skills', () => {
         required: [
           'Build ↔ Verify Loop',
           'Builder 提交候选',
-          '新的只读 Verifier',
+          '当前模型据此逐项验收',
           '`iteration` 表示实现候选的轮次',
-          '`attempt` 表示同一候选启动 Verifier 的次数',
+          '`attempt` 表示同一候选的验收尝试次数',
           '所有计数都由 Runtime 更新',
         ],
       },
@@ -153,9 +153,9 @@ describe('Comet Native Skills', () => {
         required: [
           'Build ↔ Verify Loop',
           'the Builder submits a candidate',
-          'a fresh read-only Verifier',
+          'the current model evaluates every acceptance item',
           '`iteration` is the implementation-candidate round',
-          '`attempt` is the number of times a Verifier has been started',
+          '`attempt` is the number of verification attempts',
           'The Runtime updates all counters',
         ],
       },
@@ -165,6 +165,44 @@ describe('Comet Native Skills', () => {
       const skill = await read(variant.language, 'SKILL.md');
       for (const term of variant.required) {
         expect(skill, `${variant.language}: ${term}`).toContain(term);
+      }
+    }
+  });
+
+  it('runs Verify in the current model instead of dispatching a separate Verifier execution', async () => {
+    const variants = [
+      {
+        language: 'zh' as const,
+        required: [
+          '由当前模型直接完成验收，不启动 Verifier subagent，也不派发独立 Agent 任务',
+          '是待核对的说法而不是结论',
+          'Verify 阶段的实现写入由 Runtime Guard 拒绝',
+          '只有用户接受当前结果才用 `--accept-result` 进入 Archive',
+        ],
+        forbidden: ['启动一个新的只读 Verifier subagent', '与 Builder 会话分开的新 Agent 任务'],
+      },
+      {
+        language: 'en' as const,
+        required: [
+          'Do not start a Verifier subagent and do not dispatch a separate Agent task',
+          'is a claim to be checked, not a conclusion',
+          'the Runtime Guard rejects implementation writes during Verify',
+          'use `--accept-result` to enter Archive only after the user accepts',
+        ],
+        forbidden: [
+          'start a fresh read-only Verifier subagent',
+          'start a new Agent task separate from the Builder session',
+        ],
+      },
+    ];
+
+    for (const variant of variants) {
+      const skill = await read(variant.language, 'SKILL.md');
+      for (const term of variant.required) {
+        expect(skill, `${variant.language}: ${term}`).toContain(term);
+      }
+      for (const term of variant.forbidden) {
+        expect(skill, `${variant.language}: ${term}`).not.toContain(term);
       }
     }
   });
