@@ -42,6 +42,7 @@ export interface NativePortableContinuation {
     | 'resolve-loop-stop'
     | 'advance-children'
     | 'builder-handoff'
+    | 'verify'
     | 'dispatch-verifier'
     | 'await-verifier'
     | 'repair'
@@ -425,6 +426,7 @@ export function nativePortableContinuation(
           required: true,
           template: {
             kind: 'builder-handoff',
+            validation_mode: 'model',
             summary: '<summary>',
             addressed_acceptance_ids: ['<acceptance-id>'],
             checks: [{ name: '<check-name>', result: 'not-run', note: null }],
@@ -436,11 +438,16 @@ export function nativePortableContinuation(
     };
   }
   if (state.phase === 'verify') {
-    const awaiting = state.loop.next_action === 'await-verifier-result';
+    const modelValidation = state.loop.next_action === 'run-model-selected-validation';
+    const awaitingLegacyVerifier = state.loop.next_action === 'await-verifier-result';
     return {
       ...base,
       disposition: 'continue',
-      action: awaiting ? 'await-verifier' : 'dispatch-verifier',
+      action: modelValidation
+        ? 'verify'
+        : awaitingLegacyVerifier
+          ? 'await-verifier'
+          : 'dispatch-verifier',
       commandArgs: [
         'comet',
         'native',
@@ -450,7 +457,11 @@ export function nativePortableContinuation(
         '<temporary-json-file>',
       ],
       requiredInputs: [
-        awaiting ? 'verifier-response-or-error-json-file' : 'resolved-check-plan-json-file',
+        modelValidation
+          ? 'model-selected-validation-json-file'
+          : awaitingLegacyVerifier
+            ? 'verifier-response-or-error-json-file'
+            : 'resolved-check-plan-json-file',
       ],
       inputOptions: [
         {
@@ -458,68 +469,67 @@ export function nativePortableContinuation(
           flag: '--runner-input',
           valueKind: 'json-file',
           required: true,
-          template: awaiting
-            ? [
-                {
-                  kind: 'verifier-response',
-                  response: {
-                    kind: 'request-checks',
-                    iteration: state.loop.iteration,
-                    attempt: state.loop.attempt,
-                    checks: [
-                      {
-                        id: '<check-id>',
-                        name: '<check-name>',
-                        executable: '<executable>',
-                        argv: [],
-                        cwdRef: '.',
-                        timeoutMs: 120000,
-                        repeatable: true,
-                      },
-                    ],
+          template: modelValidation
+            ? {
+                kind: 'verification-result',
+                summary: '<summary>',
+                acceptance: [
+                  {
+                    id: '<acceptance-id>',
+                    result: '<passed|failed|blocked>',
+                    reason: '<reason>',
                   },
-                },
-                {
-                  kind: 'verifier-response',
-                  response: {
-                    kind: 'final-result',
-                    result: {
-                      iteration: state.loop.iteration,
-                      attempt: state.loop.attempt,
-                      verdict: '<pass|fail|blocked>',
-                      acceptance: [
-                        {
-                          id: '<acceptance-id>',
-                          result: '<passed|failed|blocked>',
-                          reason: '<reason>',
-                        },
-                      ],
-                      risks: [],
-                      summary: '<summary>',
+                ],
+                checks: [
+                  {
+                    id: '<check-id>',
+                    name: '<check-name>',
+                    executable: '<executable>',
+                    argv: [],
+                    cwdRef: '.',
+                    timeoutMs: 120000,
+                    repeatable: true,
+                  },
+                ],
+                known_limits: [],
+              }
+            : awaitingLegacyVerifier
+              ? [
+                  {
+                    kind: 'verifier-response',
+                    response: {
+                      kind: 'final-result',
+                      result: {
+                        iteration: state.loop.iteration,
+                        attempt: state.loop.attempt,
+                        verdict: '<pass|fail|blocked>',
+                        acceptance: [
+                          {
+                            id: '<acceptance-id>',
+                            result: '<passed|failed|blocked>',
+                            reason: '<reason>',
+                          },
+                        ],
+                        risks: [],
+                        summary: '<summary>',
+                      },
                     },
                   },
-                },
-                {
-                  kind: 'verifier-execution-error',
-                  summary: '<summary>',
-                  stateVersion: state.state_version,
-                  iteration: state.loop.iteration,
-                  attempt: state.loop.attempt,
-                  verifierExecutionRef: '<from verifierDispatch>',
-                },
-                {
-                  kind: 'verifier-unavailable',
-                  summary: '<why no independent semantic execution is available>',
-                  stateVersion: state.state_version,
-                  iteration: state.loop.iteration,
-                  attempt: state.loop.attempt,
-                  verifierExecutionRef: '<from verifierDispatch>',
-                },
-              ]
-            : { kind: 'dispatch-verifier', checks: [] },
+                  {
+                    kind: 'verifier-execution-error',
+                    summary: '<summary>',
+                    stateVersion: state.state_version,
+                    iteration: state.loop.iteration,
+                    attempt: state.loop.attempt,
+                    verifierExecutionRef: '<from verifierDispatch>',
+                  },
+                ]
+              : { kind: 'dispatch-verifier', checks: [] },
         },
       ],
-      runnerAction: runner(awaiting ? 'await-verifier' : 'dispatch-verifier'),
+      runnerAction: runner(
+        modelValidation ? 'none' : awaitingLegacyVerifier ? 'await-verifier' : 'dispatch-verifier',
+      ),
     };
   }
   return {

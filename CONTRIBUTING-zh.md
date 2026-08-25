@@ -45,6 +45,7 @@ pnpm build
 
 - Node.js `>=22`，pnpm 版本以 `package.json` 的 `packageManager` 字段为准（当前 `pnpm@10.18.3`）。
 - 如果本地依赖安装或构建行为与 CI 不一致，请在 PR 中说明。
+- 需要用本地代码运行或安装 Comet 来验证未发布的改动时，见 [从本地代码安装](docs/operations/LOCAL-INSTALL-ZH.md) | [English](docs/operations/LOCAL-INSTALL.md)。
 
 ## 常用命令
 

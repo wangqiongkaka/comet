@@ -465,6 +465,7 @@ function parseVerification(value: unknown): NativePortableVerificationState {
             [
               'host-attested',
               'skill-coordinated',
+              'self-validated',
               'semantic-verification-unavailable',
               'user-confirmed-degraded',
             ] as const,
@@ -597,8 +598,17 @@ function assertReferences(state: NativePortableState): void {
       'semantic-verification-unavailable',
       'user-confirmed-degraded',
     ].includes(state.verification.assurance);
-    if (skillAssurance !== (state.verification.identity_provider === 'skill-coordinated')) {
+    if (
+      state.verification.assurance !== 'self-validated' &&
+      skillAssurance !== (state.verification.identity_provider === 'skill-coordinated')
+    ) {
       throw new Error('Native verification assurance does not match its identity provider');
+    }
+    if (
+      state.verification.assurance === 'self-validated' &&
+      state.verification.verdict !== 'pass'
+    ) {
+      throw new Error('Native self-validated verification must be passing');
     }
     if (
       state.verification.assurance === 'semantic-verification-unavailable' &&

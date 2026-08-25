@@ -8,6 +8,7 @@ export type NativePortableVerificationResult = 'pending' | 'pass' | 'fail' | 'bl
 export type NativePortableVerificationAssurance =
   | 'host-attested'
   | 'skill-coordinated'
+  | 'self-validated'
   | 'semantic-verification-unavailable'
   | 'user-confirmed-degraded';
 export type NativePortableAcceptanceResult = 'pending' | 'passed' | 'failed' | 'blocked';

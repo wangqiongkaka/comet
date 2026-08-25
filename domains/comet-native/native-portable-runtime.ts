@@ -26,6 +26,8 @@ import {
 } from './native-check-executor.js';
 import {
   applyNativeVerifierEnvelope,
+  completeNativeModelValidation,
+  type NativeModelValidationInput,
   confirmNativeSkillCoordinatedPass,
   confirmNativePortableAcceptance,
   confirmNativeVerifierUnavailable,
@@ -71,10 +73,11 @@ import type {
 import {
   createNativeRunnerChannel,
   isNativeTrustedVerifierEnvelope,
+  NATIVE_SKILL_COORDINATION,
   type NativeTrustedVerifierEnvelope,
 } from './native-runner-protocol.js';
 import {
-  parseNativeVerifierResponse,
+  NativeVerifierStaleError,
   type NativeVerifierCheckRequest,
   type NativeVerifierResponse,
 } from './native-verifier-protocol.js';
@@ -567,6 +570,37 @@ export async function submitNativePortableBuilderCandidate(options: {
   );
 }
 
+export async function completeNativePortableModelValidation(options: {
+  paths: NativeProjectPaths;
+  name: string;
+  input: NativeModelValidationInput;
+}): Promise<NativePortableState> {
+  return withNativeMutationLock(
+    options.paths,
+    `complete portable model validation ${options.name}`,
+    async () => {
+      const state = await readNativePortableChange(options.paths, options.name);
+      await ensureNativePortableAcceptanceCurrentLocked({ paths: options.paths, state });
+      const next = completeNativeModelValidation({ state, input: options.input });
+      const written = await writePortableMutation({ paths: options.paths, previous: state, next });
+      await writeNativeVerificationReport({
+        file: path.join(nativePortableChangeDir(options.paths, state.name), 'verification.md'),
+        state: written,
+      });
+      await writeNativeLocalExecution(
+        nativeLocalExecutionFile(options.paths, state.name),
+        rebuildNativeLocalExecution({
+          portableState: written,
+          projectRoot: options.paths.projectRoot,
+          branch: currentBranch(options.paths.projectRoot),
+        }),
+        { containedRoot: options.paths.runtimeDir },
+      );
+      return written;
+    },
+  );
+}
+
 export async function completeNativePortableParentBuild(options: {
   paths: NativeProjectPaths;
   name: string;
@@ -596,7 +630,7 @@ export async function completeNativePortableParentBuild(options: {
       }
       const runner = createNativeRunnerChannel();
       const identity = runner.captureExecutionIdentity({
-        identityProvider: 'skill-coordinated',
+        identityProvider: NATIVE_SKILL_COORDINATION,
         executionRef: `native-parent-integration:${randomUUID()}`,
       });
       const next = submitNativeBuilderCandidate({
@@ -607,6 +641,7 @@ export async function completeNativePortableParentBuild(options: {
           addressedAcceptanceIds: state.acceptance.map(({ id }) => id),
           checks: [],
           knownLimits: [],
+          modelValidation: true,
         },
       });
       const written = await writePortableMutation({ paths: options.paths, previous: state, next });
@@ -843,13 +878,6 @@ function assertCurrentVerifierEnvelope(options: {
     throw new Error('Native Verifier result is stale for the current workflow state');
   }
   if (
-    envelope.candidateId !== state.builder_handoff.candidate_id ||
-    envelope.identityProvider !== state.builder_handoff.identity_provider ||
-    envelope.verifierExecutionRef === state.builder_handoff.builder_execution_ref
-  ) {
-    throw new Error('Native Verifier result is stale for the current candidate or identity');
-  }
-  if (
     local === null ||
     local.execution === null ||
     local.execution.stage !== 'verifying' ||
@@ -861,15 +889,6 @@ function assertCurrentVerifierEnvelope(options: {
     throw new Error('Native Verifier result is stale for the active execution');
   }
   return envelope;
-}
-
-function nativeVerifierResponsePosition(response: NativeVerifierResponse): {
-  iteration: number;
-  attempt: number;
-} {
-  return response.kind === 'final-result'
-    ? { iteration: response.result.iteration, attempt: response.result.attempt }
-    : { iteration: response.iteration, attempt: response.attempt };
 }
 
 async function persistVerifierExecutionError(options: {
@@ -928,7 +947,8 @@ async function reserveNativePortableCheckPlan(options: {
     `reserve portable checks ${options.name}`,
     async () => {
       const state = await readNativePortableChange(options.paths, options.name);
-      await ensureNativePortableAcceptanceCurrentLocked({ paths: options.paths, state });
+      // Acceptance drift is checked once at Verifier dispatch, which always follows
+      // check execution; checking it here too only re-reads the brief and every Spec.
       if (state.phase !== 'verify' || state.loop.stage !== 'verify-ready') {
         throw new Error('Native checks require Verify ready state');
       }
@@ -1557,25 +1577,9 @@ export async function submitNativePortableVerifierResult(options: {
         local,
         envelope: options.envelope,
       });
-      let parsedResponse: NativeVerifierResponse;
-      try {
-        parsedResponse = parseNativeVerifierResponse(trustedEnvelope.payload);
-      } catch (error) {
-        const summary = `Native Verifier response was invalid: ${(error as Error).message}`;
-        const failed = await persistVerifierExecutionError({
-          paths: options.paths,
-          state,
-          summary,
-        });
-        throw new Error(
-          `${summary}; execution error ${failed.loop.execution_failure_count}/${NATIVE_MAX_VERIFIER_EXECUTION_FAILURES} was recorded`,
-          { cause: error },
-        );
-      }
-      const position = nativeVerifierResponsePosition(parsedResponse);
-      if (position.iteration !== state.loop.iteration || position.attempt !== state.loop.attempt) {
-        throw new Error('Native Verifier result is stale for the current iteration or attempt');
-      }
+      // Candidate, identity, position, and payload validation all happen once inside
+      // applyNativeVerifierEnvelope; stale messages surface as NativeVerifierStaleError
+      // and are rejected below without counting as execution failures.
       let runtimeChecks: NativePortableCheckSummary[] = [];
       let finalResult: ReturnType<typeof applyNativeVerifierEnvelope>;
       try {
@@ -1628,6 +1632,7 @@ export async function submitNativePortableVerifierResult(options: {
         }
         finalResult = result;
       } catch (error) {
+        if (error instanceof NativeVerifierStaleError) throw error;
         const summary = `Native Verifier response was invalid: ${(error as Error).message}`;
         const failed = await persistVerifierExecutionError({
           paths: options.paths,

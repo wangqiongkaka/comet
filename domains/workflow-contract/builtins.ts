@@ -340,14 +340,15 @@ export const COMET_NATIVE_NODES: WorkflowNodeTemplate[] = [
     id: 'verify',
     label: 'Verify',
     kind: 'control',
-    responsibility: 'Prove acceptance scenarios and target-spec consistency with evidence.',
+    responsibility:
+      'Use the current model to select and run validation proportional to the change risk.',
     implementation: { skill: 'comet-native', operation: 'default', scope: 'main' },
     operations: ['require', 'augment'],
     outputSchemas: ['comet.native.verify.v1'],
     guardrails: [
       {
         id: 'native-verification-ready',
-        label: 'Native verification report is complete',
+        label: 'Risk-matched validation is complete',
         validation: 'semantic',
       },
     ],

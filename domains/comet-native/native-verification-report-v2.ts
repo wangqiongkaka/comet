@@ -50,9 +50,20 @@ export function renderNativeVerificationReport(state: NativePortableState): stri
         `| ${tableCell(entry.id)} | ${tableCell(entry.result)} | ${tableCell(entry.source)} | ${tableCell(entry.text)} | ${tableCell(display(entry.reason))} |`,
     )
     .join('\n');
+  const buildChecks =
+    state.builder_handoff?.checks.length === 0
+      ? '_No Builder checks were recorded._'
+      : [
+          '| Check | Result | Note |',
+          '| --- | --- | --- |',
+          ...(state.builder_handoff?.checks ?? []).map(
+            (check) =>
+              `| ${tableCell(display(check.name))} | ${check.result} | ${tableCell(display(check.note))} |`,
+          ),
+        ].join('\n');
   const checks =
     state.verification.checks.length === 0
-      ? '_No Runtime checks were recorded._'
+      ? '_No Runtime-managed checks were recorded._'
       : [
           '| Check | Command | Working directory | Status | Exit | Duration |',
           '| --- | --- | --- | --- | ---: | ---: |',
@@ -94,7 +105,7 @@ export function renderNativeVerificationReport(state: NativePortableState): stri
 generated_from_state_version: ${state.state_version}
 ---
 
-# Verification
+# Validation
 
 ## Current result
 
@@ -102,7 +113,7 @@ generated_from_state_version: ${state.state_version}
 - Assurance: **${assuranceLabel(state)}**
 - Goal cycle: ${state.loop.goal_cycle}
 - Iteration: ${state.verification.iteration}
-- Verifier attempt: ${state.verification.attempt}
+- Validation round: ${state.verification.attempt}
 - Completed: ${state.verification.completed_at}
 - Summary: ${display(state.verification.summary)}
 
@@ -112,7 +123,11 @@ generated_from_state_version: ${state.state_version}
 | --- | --- | --- | --- | --- |
 ${acceptance}
 
-## Checks
+## Builder checks
+
+${buildChecks}
+
+## Model-selected Runtime checks
 
 ${checks}
 

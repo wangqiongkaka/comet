@@ -7,6 +7,7 @@ import { readNativeLocalExecution } from './native-local-execution.js';
 import { nativePortableContinuation } from './native-portable-continuation.js';
 import {
   dispatchNativePortableVerifier,
+  completeNativePortableModelValidation,
   executeNativePortableCheckPlan,
   nativeLocalExecutionFile,
   readNativePortableChange,
@@ -26,6 +27,7 @@ import type { NativeProjectPaths } from './native-types.js';
 
 interface RunnerBuilderInput {
   kind: 'builder-handoff';
+  validation_mode?: 'model';
   summary: string;
   addressed_acceptance_ids: string[];
   checks: Array<{
@@ -33,6 +35,14 @@ interface RunnerBuilderInput {
     result: 'passed' | 'failed' | 'not-run';
     note: string | null;
   }>;
+  known_limits: string[];
+}
+
+interface RunnerModelValidationInput {
+  kind: 'verification-result';
+  summary: string;
+  acceptance: Array<{ id: string; result: 'passed' | 'failed' | 'blocked'; reason: string }>;
+  checks: NativeCheckPlan[];
   known_limits: string[];
 }
 
@@ -66,6 +76,7 @@ interface RunnerVerifierUnavailableInput {
 
 export type NativeRunnerInput =
   | RunnerBuilderInput
+  | RunnerModelValidationInput
   | RunnerDispatchInput
   | RunnerVerifierInput
   | RunnerExecutionErrorInput
@@ -113,6 +124,22 @@ function builderChecks(value: unknown): RunnerBuilderInput['checks'] {
       name: text(input.name, `Native Builder check ${index} name`),
       result: input.result as RunnerBuilderInput['checks'][number]['result'],
       note: input.note as string | null,
+    };
+  });
+}
+
+function acceptanceResults(value: unknown): RunnerModelValidationInput['acceptance'] {
+  if (!Array.isArray(value)) throw new Error('Native Verify acceptance must be an array');
+  return value.map((entry, index) => {
+    const input = record(entry, `Native Verify acceptance ${index}`);
+    exactKeys(input, ['id', 'result', 'reason'], `Native Verify acceptance ${index}`);
+    if (!['passed', 'failed', 'blocked'].includes(String(input.result))) {
+      throw new Error(`Native Verify acceptance ${index} result is invalid`);
+    }
+    return {
+      id: text(input.id, `Native Verify acceptance ${index} id`),
+      result: input.result as RunnerModelValidationInput['acceptance'][number]['result'],
+      reason: text(input.reason, `Native Verify acceptance ${index} reason`),
     };
   });
 }
@@ -179,11 +206,22 @@ export function parseNativeRunnerInput(value: unknown): NativeRunnerInput {
   if (input.kind === 'builder-handoff') {
     exactKeys(
       input,
-      ['kind', 'summary', 'addressed_acceptance_ids', 'checks', 'known_limits'],
+      [
+        'kind',
+        'summary',
+        'addressed_acceptance_ids',
+        'checks',
+        'known_limits',
+        ...(Object.hasOwn(input, 'validation_mode') ? ['validation_mode'] : []),
+      ],
       'Native Runner Builder input',
     );
+    if (Object.hasOwn(input, 'validation_mode') && input.validation_mode !== 'model') {
+      throw new Error('Native Builder validation_mode must be model when provided');
+    }
     return {
       kind: 'builder-handoff',
+      ...(input.validation_mode === 'model' ? { validation_mode: 'model' as const } : {}),
       summary: text(input.summary, 'Native Builder summary'),
       addressed_acceptance_ids: strings(
         input.addressed_acceptance_ids,
@@ -191,6 +229,20 @@ export function parseNativeRunnerInput(value: unknown): NativeRunnerInput {
       ),
       checks: builderChecks(input.checks),
       known_limits: strings(input.known_limits, 'Native Builder known limits'),
+    };
+  }
+  if (input.kind === 'verification-result') {
+    exactKeys(
+      input,
+      ['kind', 'summary', 'acceptance', 'checks', 'known_limits'],
+      'Native Runner verification result',
+    );
+    return {
+      kind: 'verification-result',
+      summary: text(input.summary, 'Native Verify summary'),
+      acceptance: acceptanceResults(input.acceptance),
+      checks: checkPlans(input.checks),
+      known_limits: strings(input.known_limits, 'Native Verify known limits'),
     };
   }
   if (input.kind === 'dispatch-verifier') {
@@ -356,11 +408,36 @@ export async function applyNativeRunnerInput(options: {
         addressedAcceptanceIds: options.input.addressed_acceptance_ids,
         checks: options.input.checks,
         knownLimits: options.input.known_limits,
+        modelValidation: options.input.validation_mode === 'model',
       },
     });
     return {
       state,
       checks: [],
+      requestChecks: null,
+      verifierDispatch: null,
+      continuation: nativePortableContinuation(state),
+    };
+  }
+  if (options.input.kind === 'verification-result') {
+    const executed = await executeNativePortableCheckPlan({
+      paths: options.paths,
+      name: options.name,
+      plans: options.input.checks,
+    });
+    const state = await completeNativePortableModelValidation({
+      paths: options.paths,
+      name: options.name,
+      input: {
+        summary: options.input.summary,
+        acceptance: options.input.acceptance,
+        checks: executed.checks,
+        knownLimits: options.input.known_limits,
+      },
+    });
+    return {
+      state,
+      checks: executed.checks,
       requestChecks: null,
       verifierDispatch: null,
       continuation: nativePortableContinuation(state),

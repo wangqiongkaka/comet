@@ -2,6 +2,13 @@
 
 All notable changes to @rpamis/comet will be documented in this file.
 
+## What's Changed [0.4.0-beta.19-yy.03] - 2026-08-25
+
+### Changed
+
+- **Model-directed Native Verify**: Native keeps its Verify phase without starting an independent Verifier. The current model reviews every acceptance item, submits a per-item verdict with a traceable reason, and selects risk-matched command checks; Runtime executes those checks, records authoritative results and logs, rejects missing or non-passing acceptance verdicts and non-passing checks, and preserves legacy in-progress Verifier attempts for compatibility. The result is honestly labeled `self-validated` in state and reports, and the change waits for explicit user acceptance (`--accept-result`) before entering Archive.
+- **Leaner Native continuation responses**: The Native Skill stops re-querying change status after every state-changing command because each response already carries the latest `state` and `continuation`.
+
 ## What's Changed [0.4.0-beta.19] - 2026-08-21
 
 ### Added

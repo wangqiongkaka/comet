@@ -15,6 +15,7 @@ import { recoverNativePortableChange } from '../../../domains/comet-native/nativ
 import { applyNativeRunnerInput } from '../../../domains/comet-native/native-runner-input.js';
 import {
   confirmNativePortableShape,
+  confirmNativePortableSkillCoordinatedPass,
   createNativePortableChange,
   dispatchNativePortableVerifier,
   executeNativePortableCheckPlan,
@@ -110,6 +111,7 @@ describe('Native portable recovery', () => {
           verifier_execution_ref: 'verifier',
           iteration: 1,
           attempt: 1,
+          assurance: 'host-attested',
           verdict: 'pass',
           checks: [
             {
@@ -160,6 +162,53 @@ describe('Native portable recovery', () => {
       );
     },
   );
+
+  it('keeps current-model Verify after an Archive-ready local overlay is lost', async () => {
+    const state = await createBuild('recover-model-validation');
+    await applyNativeRunnerInput({
+      paths,
+      name: state.name,
+      maxVerifyFailures: 3,
+      input: {
+        kind: 'builder-handoff',
+        validation_mode: 'model',
+        summary: 'Built.',
+        addressed_acceptance_ids: state.acceptance.map(({ id }) => id),
+        checks: [],
+        known_limits: [],
+      },
+    });
+    await applyNativeRunnerInput({
+      paths,
+      name: state.name,
+      maxVerifyFailures: 3,
+      input: {
+        kind: 'verification-result',
+        summary: 'Validated.',
+        acceptance: state.acceptance.map(({ id }) => ({
+          id,
+          result: 'passed' as const,
+          reason: 'Behavior was observed.',
+        })),
+        checks: [],
+        known_limits: [],
+      },
+    });
+    await confirmNativePortableSkillCoordinatedPass({ paths, name: state.name });
+    await fs.rm(path.dirname(nativeLocalExecutionFile(paths, state.name)), {
+      recursive: true,
+      force: true,
+    });
+
+    const recovered = await recoverNativePortableChange({ paths, name: state.name });
+    expect(recovered).toMatchObject({
+      action: 'reverify',
+      state: {
+        phase: 'verify',
+        loop: { stage: 'verify-ready', next_action: 'run-model-selected-validation' },
+      },
+    });
+  });
 
   it('abandons a lost running Verifier and returns to a fresh Verify boundary', async () => {
     let state = await createBuild('recover-verifier');

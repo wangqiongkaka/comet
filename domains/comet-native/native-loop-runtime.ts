@@ -31,6 +31,7 @@ export interface NativeBuilderCandidateInput {
   checks?: Array<{ name: string; result: 'passed' | 'failed' | 'not-run'; note?: string | null }>;
   knownLimits?: string[];
   candidateId?: string;
+  modelValidation?: boolean;
   now?: Date;
 }
 
@@ -156,9 +157,128 @@ export function submitNativeBuilderCandidate(options: {
       stage: 'verify-ready',
       attempt: 0,
       execution_failure_count: 0,
-      next_action: 'run-required-checks-and-dispatch-verifier',
+      next_action: input.modelValidation
+        ? 'run-model-selected-validation'
+        : 'run-required-checks-and-dispatch-verifier',
     },
   });
+}
+
+export interface NativeModelValidationAcceptanceInput {
+  id: string;
+  result: 'passed' | 'failed' | 'blocked';
+  reason: string;
+}
+
+export interface NativeModelValidationInput {
+  summary: string;
+  acceptance: NativeModelValidationAcceptanceInput[];
+  checks: NativePortableCheckSummary[];
+  knownLimits?: string[];
+  now?: Date;
+}
+
+export function completeNativeModelValidation(options: {
+  state: NativePortableState;
+  input: NativeModelValidationInput;
+}): NativePortableState {
+  const state = parseNativePortableState(options.state);
+  if (
+    state.phase !== 'verify' ||
+    state.status !== 'active' ||
+    state.loop.stage !== 'verify-ready' ||
+    state.loop.next_action !== 'run-model-selected-validation' ||
+    state.builder_handoff === null
+  ) {
+    throw new Error('Native model validation requires an active Verify candidate');
+  }
+  const failedCheck = options.input.checks.find(({ status }) => status !== 'passed');
+  if (failedCheck) {
+    throw new Error(`Native Verify Runtime check did not pass: ${failedCheck.id}`);
+  }
+  uniqueKnownIds(
+    options.input.acceptance.map(({ id }) => id),
+    state.acceptance,
+    'Native Verify acceptance',
+  );
+  const acceptanceById = new Map(options.input.acceptance.map((entry) => [entry.id, entry]));
+  const missing = state.acceptance.filter(({ id }) => !acceptanceById.has(id)).map(({ id }) => id);
+  if (missing.length > 0) {
+    throw new Error(`Native Verify must address every acceptance item: ${missing.join(', ')}`);
+  }
+  const unresolved = options.input.acceptance.filter(({ result }) => result !== 'passed');
+  if (unresolved.length > 0) {
+    throw new Error(
+      `Native Verify acceptance items did not pass: ${unresolved
+        .map(({ id, result }) => `${id} (${result})`)
+        .join(', ')}`,
+    );
+  }
+  const completedAt = (options.input.now ?? new Date()).toISOString();
+  const summary = toNativePortableText(options.input.summary);
+  const skillCoordinated = state.builder_handoff.identity_provider === NATIVE_SKILL_COORDINATION;
+  const ready = parseNativePortableState({
+    ...state,
+    phase: skillCoordinated ? 'verify' : 'archive',
+    status: skillCoordinated ? 'await-user' : 'active',
+    state_version: nextVersion(state),
+    acceptance: state.acceptance.map((entry) => ({
+      ...entry,
+      result: 'passed' as const,
+      reason: toNativePortableText(acceptanceById.get(entry.id)!.reason),
+    })),
+    builder_handoff: {
+      ...state.builder_handoff,
+      known_limits: (options.input.knownLimits ?? []).map(toNativePortableText),
+    },
+    verification_result: 'pass',
+    verification_report: 'verification.md',
+    blockers: skillCoordinated
+      ? [
+          {
+            owner: 'user',
+            reason: toNativePortableText(
+              'Model-selected validation is self-attested without an independent Verifier execution; user confirmation is required before Archive.',
+            ),
+            acceptance_ids: [],
+            resolution_action: 'await-user',
+          },
+        ]
+      : [],
+    // ponytail: reuse the v4 verification projection; a schema rename adds no behavior.
+    verification: {
+      candidate_id: state.builder_handoff.candidate_id,
+      identity_provider: state.builder_handoff.identity_provider,
+      verifier_execution_ref: `${state.builder_handoff.builder_execution_ref}:model-validation`,
+      iteration: state.loop.iteration,
+      attempt: 1,
+      assurance: 'self-validated',
+      verdict: 'pass',
+      checks: options.input.checks.map((check) => ({ ...check })),
+      summary,
+      risks: (options.input.knownLimits ?? []).map(toNativePortableText),
+      risks_truncated: false,
+      completed_at: completedAt,
+    },
+    loop: {
+      ...state.loop,
+      stage: skillCoordinated ? 'await-user' : 'archive-ready',
+      attempt: 1,
+      execution_failure_count: 0,
+      previous_unresolved_ids: [],
+      no_progress_count: 0,
+      next_action: skillCoordinated ? 'confirm-skill-coordinated-pass' : 'archive',
+    },
+  });
+  return appendNativePortableHistory(
+    ready,
+    historyEntry({
+      state,
+      outcome: 'pass',
+      summary: options.input.summary,
+      completedAt,
+    }),
+  );
 }
 
 export function reserveNativeVerifierAttempt(stateInput: NativePortableState): NativePortableState {

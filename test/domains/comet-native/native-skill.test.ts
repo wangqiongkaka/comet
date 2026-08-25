@@ -60,7 +60,7 @@ describe('Comet Native Skills', () => {
       expect(
         contents.reduce((total, source) => total + source.split(/\r?\n/u).length, 0),
       ).toBeLessThanOrEqual(400);
-      expect(headings(contents[0])).toHaveLength(10);
+      expect(headings(contents[0])).toHaveLength(9);
     }
 
     for (const file of markdownFiles) {
@@ -135,28 +135,34 @@ describe('Comet Native Skills', () => {
     }
   });
 
-  it('keeps the completion loop bounded and preserves v4-only semantics', async () => {
+  it('keeps Verify risk-matched without an independent Verifier', async () => {
     const variants = [
       {
         language: 'zh' as const,
         required: [
-          'Build ↔ Verify Loop',
-          'Builder 提交候选',
-          '新的只读 Verifier',
-          '`iteration` 表示实现候选的轮次',
-          '`attempt` 表示同一候选启动 Verifier 的次数',
-          '所有计数都由 Runtime 更新',
+          '## Verify',
+          '当前模型根据实际改动风险选择最小但充分的验证',
+          '不启动新的 Verifier subagent',
+          '`verification-result`',
+          '逐项验收结论',
+          'Runtime 负责执行计划、记录退出码与日志',
+          '`self-validated`',
+          '`--accept-result`',
+          '进入 Archive',
         ],
       },
       {
         language: 'en' as const,
         required: [
-          'Build ↔ Verify Loop',
-          'the Builder submits a candidate',
-          'a fresh read-only Verifier',
-          '`iteration` is the implementation-candidate round',
-          '`attempt` is the number of times a Verifier has been started',
-          'The Runtime updates all counters',
+          '## Verify',
+          'The current model selects the smallest sufficient validation',
+          'do not start a new Verifier subagent',
+          '`verification-result`',
+          'per-item acceptance verdicts',
+          'Runtime executes the plan, records exit codes and logs',
+          '`self-validated`',
+          '`--accept-result`',
+          'advances to Archive',
         ],
       },
     ];
@@ -305,10 +311,11 @@ describe('Comet Native Skills', () => {
         expect(commands).toContain(field);
       }
       expect(commands).toContain('builder-handoff');
-      expect(commands).toContain('dispatch-verifier');
-      expect(commands).toContain('verifier-response');
-      expect(commands).toContain('verifier-execution-error');
-      expect(commands).toContain('skill-coordinated');
+      expect(commands).toContain('validation_mode');
+      expect(commands).toContain('verification-result');
+      expect(commands).toContain('timeoutMs');
+      expect(commands).toContain('Runtime');
+      expect(commands).toContain('--accept-result');
       expect(commands.match(/comet native/gu)?.length ?? 0).toBeLessThanOrEqual(4);
       expect(commands).not.toContain('```json');
       expect(commands).not.toContain('| Exit code |');

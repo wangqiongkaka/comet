@@ -67,6 +67,9 @@ pnpm build
   field (currently `pnpm@10.18.3`).
 - If dependency installation or build behavior differs locally, mention it in
   the PR.
+- To run or install Comet from local code and verify unreleased changes, see
+  [Install from local code](docs/operations/LOCAL-INSTALL.md) |
+  [中文](docs/operations/LOCAL-INSTALL-ZH.md).
 
 ## Commands
 

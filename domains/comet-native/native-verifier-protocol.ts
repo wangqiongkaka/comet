@@ -177,6 +177,12 @@ export function normalizeNativeCheckRequestId(request: NativeVerifierCheckReques
   ]);
 }
 
+/**
+ * A Verifier message that belongs to another candidate, execution, iteration, or attempt.
+ * Late messages from a superseded Verifier are rejected without counting as execution failures.
+ */
+export class NativeVerifierStaleError extends Error {}
+
 export function validateNativeTrustedVerifierEnvelope(options: {
   envelope: NativeTrustedVerifierEnvelope<unknown> | unknown;
   binding: NativeVerifierBinding;
@@ -186,20 +192,26 @@ export function validateNativeTrustedVerifierEnvelope(options: {
   }
   const { envelope, binding } = options;
   if (envelope.candidateId !== binding.candidateId) {
-    throw new Error('Native Verifier result does not match the current candidate');
+    throw new NativeVerifierStaleError(
+      'Native Verifier result does not match the current candidate',
+    );
   }
   if (envelope.identityProvider !== binding.identityProvider) {
-    throw new Error('Native Verifier identity provider does not match the Builder provider');
+    throw new NativeVerifierStaleError(
+      'Native Verifier identity provider does not match the Builder provider',
+    );
   }
   if (envelope.verifierExecutionRef === binding.builderExecutionRef) {
-    throw new Error('Native Builder and Verifier must be different executions');
+    throw new NativeVerifierStaleError('Native Builder and Verifier must be different executions');
   }
   const response = parseNativeVerifierResponse(envelope.payload);
   const iteration =
     response.kind === 'final-result' ? response.result.iteration : response.iteration;
   const attempt = response.kind === 'final-result' ? response.result.attempt : response.attempt;
   if (iteration !== binding.iteration || attempt !== binding.attempt) {
-    throw new Error('Native Verifier result is stale for the current iteration or attempt');
+    throw new NativeVerifierStaleError(
+      'Native Verifier result is stale for the current iteration or attempt',
+    );
   }
   if (response.kind === 'request-checks') return response;
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyNativeVerifierEnvelope,
+  completeNativeModelValidation,
   confirmNativeSkillCoordinatedPass,
   confirmNativePortableAcceptance,
   recordNativeVerifierExecutionError,
@@ -116,6 +117,82 @@ function resubmitRepair(
 }
 
 describe('Native portable Build/Verify loop', () => {
+  it('requires complete, non-failing model validation before Archive', () => {
+    const runner = createNativeRunnerChannel();
+    const build = confirmNativePortableAcceptance({
+      state: createNativePortableState({ name: 'model-validation', language: 'en' }),
+      acceptance: [
+        { id: 'A1', source: 'brief.md', text: 'First behavior works.' },
+        { id: 'A2', source: 'brief.md', text: 'Second behavior works.' },
+      ],
+    });
+    const state = submitNativeBuilderCandidate({
+      state: build,
+      input: {
+        identity: runner.captureExecutionIdentity({
+          identityProvider: NATIVE_SKILL_COORDINATION,
+          executionRef: 'builder-validation',
+        }),
+        summary: 'Implemented the change.',
+        addressedAcceptanceIds: ['A1', 'A2'],
+        modelValidation: true,
+      },
+    });
+    const input = {
+      summary: 'Validated the change.',
+      acceptance: [
+        { id: 'A1', result: 'passed' as const, reason: 'First behavior was observed.' },
+        { id: 'A2', result: 'passed' as const, reason: 'Second behavior was observed.' },
+      ],
+      checks,
+    };
+
+    const validated = completeNativeModelValidation({ state, input });
+    expect(validated).toMatchObject({
+      phase: 'verify',
+      status: 'await-user',
+      verification_result: 'pass',
+      verification: { assurance: 'self-validated', verdict: 'pass' },
+      acceptance: [
+        { result: 'passed', reason: { text: 'First behavior was observed.' } },
+        { result: 'passed', reason: { text: 'Second behavior was observed.' } },
+      ],
+      loop: { stage: 'await-user', next_action: 'confirm-skill-coordinated-pass' },
+    });
+    expect(confirmNativeSkillCoordinatedPass(validated)).toMatchObject({
+      phase: 'archive',
+      status: 'active',
+      loop: { stage: 'archive-ready', next_action: 'archive' },
+    });
+    expect(() =>
+      completeNativeModelValidation({
+        state,
+        input: {
+          ...input,
+          checks: checks.map((check) => ({ ...check, status: 'failed', exit_code: 1 })),
+        },
+      }),
+    ).toThrow('Runtime check did not pass: unit');
+    expect(() =>
+      completeNativeModelValidation({
+        state,
+        input: { ...input, acceptance: input.acceptance.slice(0, 1) },
+      }),
+    ).toThrow('must address every acceptance item');
+    expect(() =>
+      completeNativeModelValidation({
+        state,
+        input: {
+          ...input,
+          acceptance: [
+            input.acceptance[0],
+            { id: 'A2', result: 'failed' as const, reason: 'Second behavior regressed.' },
+          ],
+        },
+      }),
+    ).toThrow('acceptance items did not pass: A2 (failed)');
+  });
+
   it('requires user confirmation before a package-local pass becomes archive-ready', () => {
     const { state, runner } = buildState();
     const result = applyNativeVerifierEnvelope({

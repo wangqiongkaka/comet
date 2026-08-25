@@ -145,6 +145,97 @@ Run applicable focused checks.
     };
   }
 
+  it('keeps Verify while the current model selects and runs validation', async () => {
+    const name = 'model-validation';
+    await prepareBuild(name);
+    const built = await runnerStep(name, {
+      ...builderHandoff(['A1']),
+      validation_mode: 'model',
+    });
+    expect(built).toMatchObject({
+      exitCode: 0,
+      data: {
+        state: { phase: 'verify' },
+        continuation: {
+          action: 'verify',
+          inputOptions: [{ template: expect.objectContaining({ kind: 'verification-result' }) }],
+        },
+      },
+    });
+
+    const verified = await runnerStep(name, {
+      kind: 'verification-result',
+      summary: 'Focused validation passed.',
+      acceptance: [{ id: 'A1', result: 'passed', reason: 'Focused tests exercised A1.' }],
+      checks: [
+        {
+          id: 'focused-tests',
+          name: 'focused tests',
+          executable: process.execPath,
+          argv: ['-e', 'process.stdout.write("1 test passed")'],
+          cwdRef: '.',
+          timeoutMs: 10_000,
+          repeatable: true,
+        },
+      ],
+      known_limits: [],
+    });
+
+    expect(verified).toMatchObject({
+      exitCode: 0,
+      data: {
+        state: {
+          phase: 'verify',
+          status: 'await-user',
+          verification_result: 'pass',
+          verification: { assurance: 'self-validated' },
+          acceptance: [{ id: 'A1', result: 'passed' }],
+          loop: { stage: 'await-user', next_action: 'confirm-skill-coordinated-pass' },
+        },
+        checks: [{ id: 'focused-tests', status: 'passed', exit_code: 0 }],
+        continuation: {
+          action: 'confirm-skill-coordinated-pass',
+          commandAlternatives: expect.arrayContaining([
+            expect.objectContaining({ name: 'accept-result' }),
+          ]),
+        },
+      },
+    });
+    const report = await fs.readFile(
+      path.join(projectRoot, 'docs', 'comet', 'changes', name, 'verification.md'),
+      'utf8',
+    );
+    expect(report).toContain('Result: **Passed, user confirmation required**');
+    expect(report).toContain('Assurance: **self-validated**');
+    expect(report).toContain('## Model-selected Runtime checks');
+    expect(report).toContain('| focused tests |');
+    expect(report).toContain('| passed | 0 |');
+    expect(report).toContain('Focused tests exercised A1.');
+
+    const accepted = json(
+      await runNativeCli([
+        'next',
+        name,
+        '--summary',
+        'User accepts the self-validated result',
+        '--accept-result',
+        '--json',
+        ...projectArgs(),
+      ]),
+    );
+    expect(accepted).toMatchObject({
+      exitCode: 0,
+      data: {
+        state: {
+          phase: 'archive',
+          status: 'active',
+          loop: { stage: 'archive-ready', next_action: 'archive' },
+        },
+        continuation: { action: 'archive' },
+      },
+    });
+  });
+
   it('documents stable-boundary and honestly labeled Skill coordination operations', async () => {
     const root = await runNativeCli(['--help']);
     const next = await runNativeCli(['next', '--help']);
@@ -154,7 +245,8 @@ Run applicable focused checks.
     expect(root.stdout).toContain('skill-coordinated');
     expect(next.stdout).toContain('continuation.runnerAction');
     expect(next.stdout).toContain('--runner-input <file>');
-    expect(next.stdout).toContain('not trusted identity attestation');
+    expect(next.stdout).toContain('model-selected risk-matched validation');
+    expect(next.stdout).toContain('verification-result');
     expect(next.stdout).toContain('--retry-verifier');
     expect(next.stdout).toContain('--resolve-verifier-blocker');
     expect(next.stdout).toContain('--accept-result');
@@ -417,9 +509,12 @@ Run applicable focused checks.
         continuation: { inputOptions: Array<{ template: unknown }> };
       }
     ).continuation.inputOptions;
-    expect(JSON.stringify(responseInputs)).toContain('request-checks');
+    // Only the common shapes are templated so every Verify round stays small;
+    // `request-checks` and `verifier-unavailable` are described in the command reference.
     expect(JSON.stringify(responseInputs)).toContain('final-result');
     expect(JSON.stringify(responseInputs)).toContain('verifier-execution-error');
+    expect(JSON.stringify(responseInputs)).not.toContain('request-checks');
+    expect(JSON.stringify(responseInputs)).not.toContain('verifier-unavailable');
     expect(JSON.stringify(responseInputs)).not.toMatch(/identity|provider/iu);
 
     const forgedCandidate = await runnerStep(name, {

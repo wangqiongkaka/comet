@@ -131,7 +131,7 @@ const HELP: Readonly<Record<string, NativeHelpEntry>> = Object.freeze({
     usage:
       'comet native next <change-name> --summary <text> [--confirmed|--accept-result|--revise-implementation|--revise-requirements|--retry-verifier|--resolve-verifier-blocker]\n       comet native next <change-name> --runner-input <json-file>',
     purpose:
-      'Confirm or recover an Agent boundary, advance parent child changes, or use one skill-coordinated JSON bridge for Builder handoff, check-plan dispatch, and Verifier response/error.',
+      'Confirm Shape, advance parent child changes, submit a Build handoff, or record model-selected risk-matched validation in Verify; legacy independent-Verifier inputs remain available for existing v4 attempts.',
     options: [
       '--summary <text>    Required transition or recovery summary.',
       '--confirmed         Confirm Shape or an explicitly degraded verifier-unavailable fallback before Archive.',
@@ -142,15 +142,16 @@ const HELP: Readonly<Record<string, NativeHelpEntry>> = Object.freeze({
       '--resolve-verifier-blocker  Resolve a semantic Verifier blocker without changing the candidate, then dispatch a new attempt.',
       '--expected-state-version <n>  Continuation-issued guard that rejects stale public transition decisions.',
       '--expected-action <action>    Continuation-issued guard that binds the public transition decision to its intended action.',
-      '--runner-input <file>  Skill-coordinated JSON: builder-handoff, dispatch-verifier, verifier-response, verifier-execution-error, or verifier-unavailable. Identity/provider/execution/candidate fields are rejected.',
-      '  builder-handoff fields: kind, summary, addressed_acceptance_ids, checks, known_limits.',
-      '  dispatch-verifier fields: kind, checks (an explicitly resolved plan; [] is allowed).',
+      '--runner-input <file>  skill-coordinated JSON: builder-handoff, verification-result, plus legacy independent-Verifier inputs. Identity/provider/execution/candidate fields are rejected.',
+      '  builder-handoff fields: kind, validation_mode, summary, addressed_acceptance_ids, checks, known_limits. validation_mode=model selects current-model Verify.',
+      '  verification-result fields: kind, summary, acceptance (per-item id/result/reason), checks, known_limits. checks is the model-selected Runtime command plan; Runtime executes and records it, then awaits --accept-result before Archive.',
+      '  legacy dispatch-verifier fields: kind, checks (an explicitly resolved plan; [] is allowed).',
       '  verifier-response fields: kind, response (request-checks or final-result).',
       '  verifier-execution-error fields: kind, summary, stateVersion, iteration, attempt, verifierExecutionRef copied from verifierDispatch.',
       '  verifier-unavailable fields: kind, summary, stateVersion, iteration, attempt, verifierExecutionRef copied from verifierDispatch; accepted only after the explicit Runtime check plan completed and passed.',
     ],
     output:
-      'The portable state, explicit skill-coordinated label, Runtime-owned check results, complete verifierDispatch, bounded request-check response, continuation.runnerAction, and machine-readable continuation.inputOptions. This generic bridge is not trusted identity attestation: a passing result waits for explicit user confirmation before Archive.',
+      'The portable state, explicit skill-coordinated label, model-selected Verify record, continuation.runnerAction, and machine-readable continuation.inputOptions. Legacy Verify attempts may also return verifierDispatch and Runtime-owned check results.',
     examples: [
       'comet native next session-timeout --summary "Shape confirmed" --confirmed',
       'comet native next session-timeout --summary "Current result accepted" --accept-result',

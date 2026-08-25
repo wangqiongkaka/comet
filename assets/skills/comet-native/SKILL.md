@@ -11,7 +11,7 @@ Native stores the requirements, complete target specifications, current progress
 - The on-disk `.comet/config.yaml`, current change, `comet-state.yaml`, and formal Markdown are the working source; chat memory is only supplementary.
 - The Runtime manages workflow state, local tasks, logs, locks, and transactions. Advance every phase through the public `comet native` commands on PATH; users do not run these commands manually.
 - If a command is unavailable, report an incomplete Comet installation and stop. Treat `comet native <command> --help` as authoritative for arguments and output.
-- The Builder submits a candidate. A fresh read-only Verifier subagent or separate Agent task makes the verification judgment.
+- The current model selects Verify validation proportional to the change risk, and Runtime executes and records the selected commands; do not start an independent Verifier subagent.
 - This Skill and the Runtime complete the Native workflow; Native does not depend on any external Skill.
 ## Start or resume
 
@@ -32,7 +32,7 @@ After confirming the phase, read only the needed reference:
 
 - Shape: always read and execute the [clarification reference](reference/clarification.md).
 - Read the [artifact reference](reference/artifacts.md) when editing the brief or complete target specifications, or when reviewing the verification report.
-- During normal progression, execute the command returned in Runtime `continuation`. Read the [command reference](reference/commands.md) only when a returned field is unclear, command input is rejected, the Verifier cannot be started, Verifier execution fails, or the Verifier needs user-provided information.
+- During normal progression, execute the command returned in Runtime `continuation`. Read the [command reference](reference/commands.md) only when a returned field is unclear or command input is rejected.
 - Read the [recovery reference](reference/recovery.md) only when the task cannot continue because of an interrupted process, missing local Runtime state after moving devices, repeated lack of progress, a concurrency conflict, failed legacy migration, or damaged state.
 ## Shape
 
@@ -46,47 +46,27 @@ After confirmation, the Skill automatically dispatches current ready children fr
 On `/comet-native` resume, continue from Runtime state and do not duplicate existing children or worktrees.
 Keep unresolved questions `[blocking]`; do not modify implementation while a blocker remains. Completion criterion: every choice that affects the visible result and every unstated assumption has been handled, no `[blocking]` item remains, the user has explicitly confirmed the outcome, scope, key decisions, acceptance items, and non-goals, and the Runtime has entered Build. Advance with the continuation containing `--confirmed` only after explicit user confirmation.
 
-## Build ↔ Verify Loop
-
-Build and Verify form a bounded acceptance Loop: the Builder submits a candidate, the Runtime runs the necessary checks, and a fresh read-only Verifier evaluates it. If verification does not pass, return to Build, make the changes, and submit the next candidate. When every item passes, enter Archive.
-
-`iteration` is the implementation-candidate round. `attempt` is the number of times a Verifier has been started for the same candidate. Repeated failures, no meaningful progress, or repeated Verifier execution errors cause the Runtime to enter an await-user or blocked state at its configured budget. The Runtime updates all counters; the Agent follows only the latest `continuation`.
-
 ## Build
 
-For the first implementation, read the current brief, complete target specifications, and all acceptance items. When Verify returns to Build, first address the failed items, blocked verification issues, and failed checks reported by the Verifier. Before submitting again, recheck the complete specifications and all acceptance items so that fixing the reported issue does not hide other omissions.
+For the first implementation, read the current brief, complete target specifications, and all acceptance items, and change only the confirmed scope. When the candidate is ready, submit the concise Builder handoff from the Runtime template: the changes made, addressed acceptance items, development checks, and known limitations. An accepted handoff enters Verify.
 
-One parent Shape confirmation authorizes strictly derived child changes, so do not ask the user to repeat the same scope. The Skill executes only actions returned by Runtime continuation and rereads `readyChildren` after each child completes; the parent still verifies every acceptance item at the end.
+One parent Shape confirmation authorizes strictly derived child changes, so do not ask the user to repeat the same scope. Execute only actions returned by Runtime continuation and reread `readyChildren` after each child completes.
 
-When status contains `children`, the current change is a Supervisor Change: do not run a Supervisor Change Builder; advance only `readyChildren`. Every child is an ordinary Native change and must be created in an independent worktree targeting the Supervisor Change's `workspace.changeBranch`. Children without dependencies may Build and Verify in parallel, but Archive them one at a time with `finish=merge` into the Supervisor Change branch. Commit the Supervisor Change contract baseline first so the integration worktree stays clean. A child is `done` only after its Archive is merged into the Supervisor Change branch; only then create dependents from the updated Supervisor Change HEAD. After every child is `done`, execute the Supervisor Change continuation to enter Verify, where a fresh Verifier checks the Supervisor Change's complete acceptance list on the final integrated branch. If Supervisor Change Verify fails, do not reopen an archived child. Follow `repair-child`, add the actual failed Spec acceptance text to the v2 `acceptance_index`, append a uniquely named repair child covering those failed acceptance items to `children.yaml`, reconfirm the Supervisor Change Shape, and continue.
+When status contains `children`, the current change is a Supervisor Change: do not run a Supervisor Change Builder; advance only `readyChildren`. Every child is an ordinary Native change in an independent worktree targeting the Supervisor Change's `workspace.changeBranch`. Children without dependencies may Build in parallel, but Archive them one at a time with `finish=merge`. A child is `done` only after its Archive is merged; after every child is done, the Supervisor Change enters Verify. If Supervisor Change Verify fails, do not reopen archived children; follow `repair-child`, append a repair child covering the failed acceptance items, reconfirm Supervisor Change Shape, and continue.
 
-When requirements change, classify them first:
-
-- The current requirement was implemented incompletely: use `--revise-implementation` from Verify to keep confirmed requirements and return to Build.
-- User-visible behavior or acceptance criteria changed: use `--revise-requirements` from Verify, update the formal artifacts, and reconfirm Shape.
-- The request is unrelated to the current requirement: keep it for another change.
-
-Apply the same rule when the user explicitly adds to the current scope.
-
-When the candidate is ready, use the input template in Runtime `continuation` to submit a concise Builder handoff: what changed in this round, which acceptance items were addressed, which development-time checks were or were not actually run, and any known limitations.
-
-The handoff is stored in `comet-state.yaml`; it does not create a separate file and does not mean verification passed. The Runtime gives it to the Verifier, and the Builder submits it once.
-
-Completion criterion: the implementation and relevant checks are ready for verification, the complete acceptance list has been rechecked, and the Runtime accepts the handoff and enters Verify.
+Completion criterion: the implementation is ready for validation, the complete acceptance list has been rechecked, and the Runtime accepts the handoff and enters Verify.
 
 ## Verify
 
-When the Runtime requests `dispatch-verifier`, first fill `inputOptions.template` with the tests and check commands needed for the current candidate, then let the Runtime execute them. The Runtime reuses completed checks. Follow the latest `continuation` for any retry or additional check.
+The current model selects the smallest sufficient validation based on the actual change risk; do not start a new Verifier subagent. Prefer focused tests covering the change. Include the corresponding build for compiler, Runtime, or generated-asset changes. Expand validation only for cross-module or high-risk changes. Do not mechanically select the full suite, and never skip checks for security, data loss, trust boundaries, or accessibility.
 
-After the Runtime returns `verifierDispatch`, immediately start a fresh read-only Verifier subagent. If the platform does not support subagents, start a new Agent task separate from the Builder session.
+After checking every acceptance item, submit the validation summary, the per-item acceptance verdicts (each with `id`, `result`, and a traceable `reason` stating what the pass judgment is based on), the executable check plan, and known limitations with the Runtime `verification-result` template. Runtime executes the plan, records exit codes and logs, and rejects missing acceptance items, non-passing acceptance verdicts, or non-passing checks. Submit an empty `checks` array only when no command check applies, and explain that in the summary. Non-trivial logic must select one runnable check that fails on regression.
 
-The Verifier first reads the acceptance items, brief, complete target Specs, actual implementation, and Runtime check results. It reads the Builder handoff last, as an investigation lead, so the verification judgment remains independent.
+When a Runtime check fails or any acceptance item does not pass, return to Build and fix the implementation instead of bypassing the failure. When everything passes, Runtime records the result as `self-validated` and awaits the user's decision: present the validation conclusions to the user, and after the user accepts, follow the continuation and use `--accept-result` to enter Archive.
 
-The Verifier remains read-only. If existing checks are insufficient, list the additional checks in the `inputOptions.template` returned by the Runtime. The Runtime executes them and returns the results to the Verifier.
+Classify requirement changes before proceeding: implementation omissions use `--revise-implementation` to return to Build; changes to visible behavior or acceptance criteria use `--revise-requirements`, update formal artifacts, and return to Shape for confirmation; unrelated requests belong to another change. Apply the same rule when the user explicitly adds to the current scope.
 
-The Verifier must finally mark every acceptance item exactly once as `passed`, `failed`, or `blocked`. For a failed or blocked item, provide a reason that the next Build round can act on directly. If the Verifier cannot be started, execution fails, or external information is missing, follow the command reference and the latest `continuation`. When a skill-coordinated Verifier passes and Runtime waits for the user decision, use `--accept-result` to enter Archive only after the user accepts the current result; otherwise use `--revise-implementation` or `--revise-requirements`.
-
-Completion criterion: the Runtime has accepted the complete Verifier result and has explicitly entered one of Build, Archive, `await-user`, `blocked`, or `done`.
+Completion criterion: risk-matched validation was actually run and recorded honestly, every acceptance item was checked with a per-item verdict, the user accepted the current result, and the Runtime advances to Archive.
 
 ## Archive
 
@@ -105,4 +85,4 @@ After every command, handle only the latest `continuation`:
 - `blocked`: resolve the listed blocker or recovery action first.
 - `done`: finish.
 
-After a state-changing command, query the change details again and confirm the current phase, acceptance Loop, state version, and working directory. Run `show` only when formal content is needed.
+A state-changing command already returns the latest `state` and `continuation` in its response; rely on them directly, and query the change details again only when a command fails, a guard is stale, or the working directory changed. Run `show` only when formal content is needed.

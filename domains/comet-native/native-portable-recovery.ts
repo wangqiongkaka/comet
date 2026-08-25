@@ -90,7 +90,9 @@ function reverifyAfterMissingRuntime(
     loop: {
       ...state.loop,
       stage: 'verify-ready',
-      next_action: 'run-required-checks-and-dispatch-verifier',
+      next_action: state.verification?.verifier_execution_ref.endsWith(':model-validation')
+        ? 'run-model-selected-validation'
+        : 'run-required-checks-and-dispatch-verifier',
     },
   });
 }
